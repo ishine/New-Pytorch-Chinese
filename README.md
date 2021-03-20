@@ -18,7 +18,7 @@
 
 下载[数据集](https://pan.baidu.com/s/1tYP4Xch7uZ2SE_XUkmKofA )(提取码：g8c6 )，下载完之后放在根目录下的Pre LCSTS，有三个文件，train.csv，eval.csv,test.csv。
 
-我直接使用的是大佬的词表，当然了你也可以使用自己跑出来的词表，我自己也跑了一份，具体的操作是遍历[LCSTS](http://icrc.hitsz.edu.cn/Article/show/139.html)所有的字，然后排序计数。[下载地址](https://pan.baidu.com/s/1N9Kenk2bo-ln8QeUYKsgqg)提取码：ubjs 。
+我直接使用的是大佬的词表（data/vocab），当然了你也可以使用自己跑出来的词表(data/all_vocab.txt)，我自己也跑了一份，具体的操作是遍历[LCSTS](http://icrc.hitsz.edu.cn/Article/show/139.html)所有的字，然后排序计数。
 
 如果你要是使用自己的词表的话，记得替换并且更改名字。
 
