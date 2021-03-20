@@ -9,3 +9,7 @@ __pycache__
 *.log
 *demo.tar
 vocab
+*.tar
+!/data/all_vocab.txt
+!/data/vocab
+!/data/test_0705000.txt
