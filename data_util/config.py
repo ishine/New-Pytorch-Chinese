@@ -1,4 +1,4 @@
-train_data_path = "data/chunked/train/train_*"
+train_data_path = "data/chunked/train/train_*" # 100条数据
 valid_data_path = "data/chunked/valid/valid_*"
 test_data_path = "data/chunked/test/test_*"
 vocab_path = "data/vocab"
@@ -8,7 +8,7 @@ demo_vocab_size = 40000
 # Hyperparameters
 hidden_dim = 512
 emb_dim = 256
-batch_size = 10
+batch_size = 30
 max_enc_steps = 100  #99% of the articles are within length 55
 max_dec_steps = 20  #99% of the titles are within length 15
 beam_size = 4
@@ -23,7 +23,7 @@ eps = 1e-12
 max_iterations = 5000000
 
 save_model_path = "data/saved_models"
-demo_model_path = ""
+demo_model_path = "data/saved_models"
 
 intra_encoder = True
 intra_decoder = True

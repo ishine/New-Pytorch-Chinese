@@ -46,7 +46,7 @@ class Evaluate(object):
                                  loadfile):
         filename = "test_" + loadfile.split(".")[0] + ".txt"
 
-        with open(os.path.join("data", filename), "w") as f:
+        with open(os.path.join("data", filename), "w", encoding='utf-8') as f:
             for i in range(len(decoded_sents)):
                 f.write("article: " + article_sents[i] + "\n")
                 f.write("ref: " + ref_sents[i] + "\n")
@@ -153,8 +153,8 @@ if __name__ == "__main__":
                         type=str,
                         default="validate",
                         choices=["validate", "test", "demo"])
-    parser.add_argument("--start_from", type=str, default="0005000.tar")
-    parser.add_argument("--load_model", type=str, default='0060000.tar')
+    parser.add_argument("--start_from", type=str, default="0160000.tar")
+    parser.add_argument("--load_model", type=str, default='0195000.tar')
     opt = parser.parse_args()
 
     if opt.task == "validate":

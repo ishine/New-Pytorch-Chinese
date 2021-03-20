@@ -10,6 +10,7 @@ def init_lstm_wt(lstm):
     for name, _ in lstm.named_parameters():
         if 'weight' in name:
             wt = getattr(lstm, name)
+            # 在-0.2至0.2之间生成一个随机数
             wt.data.uniform_(-config.rand_unif_init_mag,
                              config.rand_unif_init_mag)
         elif 'bias' in name:
@@ -22,6 +23,7 @@ def init_lstm_wt(lstm):
 
 
 def init_linear_wt(linear):
+    # 权重正态化
     linear.weight.data.normal_(std=config.trunc_norm_init_std)
     if linear.bias is not None:
         linear.bias.data.normal_(std=config.trunc_norm_init_std)
@@ -46,6 +48,7 @@ class Encoder(nn.Module):
         init_linear_wt(self.reduce_h)
         self.reduce_c = nn.Linear(config.hidden_dim * 2, config.hidden_dim)
         init_linear_wt(self.reduce_c)
+        # TODO:输出的维数是多少
 
     def forward(self, x, seq_lens):
         packed = pack_padded_sequence(x, seq_lens, batch_first=True)
@@ -153,17 +156,17 @@ class Decoder(nn.Module):
         self.enc_attention = encoder_attention()
         self.dec_attention = decoder_attention()
         self.x_context = nn.Linear(config.hidden_dim * 2 + config.emb_dim,
-                                   config.emb_dim)
+                                   config.emb_dim) # 1280*256
 
-        self.lstm = nn.LSTMCell(config.emb_dim, config.hidden_dim)
+        self.lstm = nn.LSTMCell(config.emb_dim, config.hidden_dim) # 256*512
         init_lstm_wt(self.lstm)
 
         self.p_gen_linear = nn.Linear(config.hidden_dim * 5 + config.emb_dim,
-                                      1)
+                                      1) # 2816*1
 
         #p_vocab
-        self.V = nn.Linear(config.hidden_dim * 4, config.hidden_dim)
-        self.V1 = nn.Linear(config.hidden_dim, config.vocab_size)
+        self.V = nn.Linear(config.hidden_dim * 4, config.hidden_dim) # 2048*512
+        self.V1 = nn.Linear(config.hidden_dim, config.vocab_size) #
         init_linear_wt(self.V1)
 
     def forward(self, x_t, s_t, enc_out, enc_padding_mask, ct_e, extra_zeros,
@@ -204,7 +207,7 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.encoder = Encoder()
         self.decoder = Decoder()
-        self.embeds = nn.Embedding(config.vocab_size, config.emb_dim)
+        self.embeds = nn.Embedding(config.vocab_size, config.emb_dim) # 40000*256
         init_wt_normal(self.embeds.weight)
 
         self.encoder = get_cuda(self.encoder)

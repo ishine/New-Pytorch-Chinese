@@ -23,7 +23,7 @@ class Example(object):
 
         # Process the article
         article_words = article.split()
-        if len(article_words) > config.max_enc_steps:
+        if len(article_words) > config.max_enc_steps: # 100个字
             article_words = article_words[:config.max_enc_steps]
         self.enc_len = len(
             article_words
@@ -187,9 +187,9 @@ class Batcher(object):
             self._bucketing_cache_size = 1  # only load one batch's worth of examples before bucketing; this essentially means no bucketing
             self._finished_reading = False  # this will tell us when we're finished reading the dataset
         else:
-            self._num_example_q_threads = 1  #16 # num threads to fill example queue
-            self._num_batch_q_threads = 1  #4  # num threads to fill batch queue
-            self._bucketing_cache_size = 1  #100 # how many batches-worth of examples to load into cache before bucketing
+            self._num_example_q_threads = 16  #16 # num threads to fill example queue
+            self._num_batch_q_threads = 4  #4  # num threads to fill batch queue
+            self._bucketing_cache_size = 100  #100 # how many batches-worth of examples to load into cache before bucketing
 
         # Start the threads that load the queues
         self._example_q_threads = []
@@ -295,6 +295,7 @@ class Batcher(object):
                     new_t.start()
 
     def text_generator(self, example_generator):
+        # 从2进制再转换成为文本
         try:
             while True:
                 e = next(example_generator)  # e is a tf.Example

@@ -34,8 +34,8 @@ def delete_folder(folder_path):
 
 def shuffle_text_data(unshuffled_art, unshuffled_abs, shuffled_art,
                       shuffled_abs):
-    article_itr = open(os.path.join(unfinished_path, unshuffled_art), "r")
-    abstract_itr = open(os.path.join(unfinished_path, unshuffled_abs), "r")
+    article_itr = open(os.path.join(unfinished_path, unshuffled_art), "r", encoding='utf-8')
+    abstract_itr = open(os.path.join(unfinished_path, unshuffled_abs), "r", encoding='utf-8')
     list_of_pairs = []
     for article in article_itr:
         article = article.strip()
@@ -44,8 +44,8 @@ def shuffle_text_data(unshuffled_art, unshuffled_abs, shuffled_art,
     article_itr.close()
     abstract_itr.close()
     random.shuffle(list_of_pairs)
-    article_itr = open(os.path.join(unfinished_path, shuffled_art), "w")
-    abstract_itr = open(os.path.join(unfinished_path, shuffled_abs), "w")
+    article_itr = open(os.path.join(unfinished_path, shuffled_art), "w", encoding='utf-8')
+    abstract_itr = open(os.path.join(unfinished_path, shuffled_abs), "w", encoding='utf-8')
     for pair in list_of_pairs:
         article_itr.write(pair[0] + "\n")
         abstract_itr.write(pair[1] + "\n")
@@ -57,8 +57,8 @@ def write_to_bin(article_path, abstract_path, out_file, vocab_counter=None):
 
     with open(out_file, 'wb') as writer:
 
-        article_itr = open(article_path, 'r')
-        abstract_itr = open(abstract_path, 'r')
+        article_itr = open(article_path, 'r', encoding='utf-8')
+        abstract_itr = open(abstract_path, 'r', encoding='utf-8')
         for article in tqdm(article_itr):
             article = article.strip()
             abstract = next(abstract_itr).strip()
@@ -82,7 +82,8 @@ def write_to_bin(article_path, abstract_path, out_file, vocab_counter=None):
                 vocab_counter.update(tokens)
 
     if vocab_counter is not None:
-        with open(vocab_path, 'w') as writer:
+        with open(vocab_path, 'w',encoding='utf-8') as writer:
+            # 这块是取5000条词表，可以全部存进去。
             for word, count in vocab_counter.most_common(VOCAB_SIZE):
                 writer.write(word + ' ' + str(count) + '\n')
 
@@ -134,14 +135,14 @@ def preprocess(x):
 
 if __name__ == "__main__":
     for file in ['eval', 'test', 'train']:
-        df = pd.read_csv('./PreLCSTS/%s.csv' % file, header=None)
+        df = pd.read_csv('./Pre LCSTS/%s.csv' % file, header=None)
         if file == 'eval':
             file = 'valid'
-        with open('./data/unfinished/%s.title.txt' % file, 'w') as f:
+        with open('./data/unfinished/%s.title.txt' % file, 'w', encoding='utf-8') as f:
             for data in tqdm(df[0].tolist()):
                 f.write(preprocess(data))
                 f.write('\n')
-        with open('./data/unfinished/%s.article.txt' % file, 'w') as f:
+        with open('./data/unfinished/%s.article.txt' % file, 'w', encoding='utf-8') as f:
             for data in tqdm(df[1].tolist()):
                 f.write(preprocess(data))
                 f.write('\n')

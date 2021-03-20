@@ -1,313 +1,365 @@
-# Text-Summarizer-Pytorch-Chinese
-![Python application](https://github.com/LowinLi/Text-Summarizer-Pytorch-Chinese/workflows/Python%20application/badge.svg)
-+ 提供一款中文版生成式摘要服务。
-+ 提供从数据到训练到部署，完整流程参考。
-## 初衷
-由于工作需要，在开源社区寻找汉语生成摘要模型时，几乎找不到可用的开源项目。
+# 基于Pytorch的中文文本摘要生成
 
-本项目在英文生成式摘要开源项目[Text-Summarizer-Pytorch](https://github.com/rohithreddy024/Text-Summarizer-Pytorch)基础上（指针生成网络），结合jieba分词，在数据集[LCSTS](http://icrc.hitsz.edu.cn/Article/show/139.html)上跑通一遍训练流程，中间自然踩过了很多坑，完整代码在这里开源出来供大家参考。
+1. 开这个仓库的主要目的是记录一下自己实验过程和数据。
 
-这里包括下载已经训练好的模型，部署服务，也包括借鉴代码完整跑一边训练流程，做为baseline使用。
-## 效果
-测试集指标：
-|  指标   | 验证集  | 测试集|
-|  ----  | ----   |----  |
-| ROUGE-1  | 0.3553 |0.3396 |
-| ROUGE-2  | 0.1843 |0.1668 |
-| ROUGE-L  | 0.3481 |0.3320 |
+2. 参考文本摘要领域大佬写的两篇论文： [A Deep Reinforced Model for Abstractive Summarization](https://arxiv.org/pdf/1705.04304.pdf) and [Get To The Point: Summarization with Pointer-Generator Networks](https://arxiv.org/pdf/1704.04368.pdf)，然后参考另一位大佬修改的代码[Text-Summarizer-Pytorch-Chinese](https://github.com/LowinLi/Text-Summarizer-Pytorch-Chinese).
 
-该模型没有经过细致优化，只是完整跑了一遍流程，仅供参考。
-[case请移步readme最下方](#摘要效果示例)
+另外，在这里还是要感谢一下[@LowinLi](https://github.com/LowinLi)。这里的所有内容基本上没做什么修改（python读取文件的时候出现编码问题，我的猜想是大佬用的mac系统，类linux，所以对编码不敏感，我用windows的话就报错了。），最多修改了一下超参数，刚开始在自己windows笔记本上跑的话，确实有点吃力，设置的batch_size=10,好像后来还直接报cuda错误，我的猜想就是设置过大了，显存承受不了。说多了。直接看训练和测试效果吧。
 
-## 搭建服务
+## 0. 数据预处理
 
-+ 已训练好模型：
-链接: https://pan.baidu.com/s/1NKMIAsaE8H7GiCpP7Jovig 提取码: d7pr
-+ 对应字典：
-链接: https://pan.baidu.com/s/1A3vzYYYenu7vfNQgRX9NHA 提取码: 8ti6
+下载[数据集](https://pan.baidu.com/s/1tYP4Xch7uZ2SE_XUkmKofA )(提取码：g8c6 )，下载完之后放在根目录下的Pre LCSTS，有三个文件，train.csv，eval.csv,test.csv。
 
-把下载的两份文件放在根目录下。
-+ 部署：
-```bash
-sudo docker-compose up
+我直接使用的是大佬的词表，当然了你也可以使用自己跑出来的词表，我自己也跑了一份，具体的操作是遍历[LCSTS](http://icrc.hitsz.edu.cn/Article/show/139.html)所有的字，然后排序计数。[下载地址](https://pan.baidu.com/s/1N9Kenk2bo-ln8QeUYKsgqg)提取码：ubjs 。
+
+如果你要是使用自己的词表的话，记得替换并且更改名字。
+
+```shell
+python make_data_files.py
 ```
-+ 测试：
-```bash
-curl -H "Accept: application/json" -H "Content-type: application/json" -X POST -d '{"text":"e公司讯，龙力退（002604）7月14日晚间公告，公司股票已被深交所决定终止上市，并在退市整理期交易30个交易日，最后交易日为7月14日，将在2020年7月15日被摘牌。公司股票终止上市后，将进
-入股转系统进行股份转让。"' http://localhost:5000/abstract
+
+然后在data目录下的chunked里面有很多bin的文件，到这里数据基本上都导入完成了。
+
+## 1.  超参数
+
+```python
+train_data_path = "data/chunked/train/train_*" # 100条数据
+valid_data_path = "data/chunked/valid/valid_*"
+test_data_path = "data/chunked/test/test_*"
+vocab_path = "data/vocab"
+demo_vocab_path = "vocab"
+demo_vocab_size = 40000
+
+# Hyperparameters
+hidden_dim = 512
+emb_dim = 256
+batch_size = 30
+max_enc_steps = 100  #99% of the articles are within length 55
+max_dec_steps = 20  #99% of the titles are within length 15
+beam_size = 4
+min_dec_steps = 3
+vocab_size = 40000
+
+lr = 0.001
+rand_unif_init_mag = 0.02
+trunc_norm_init_std = 1e-4
+
+eps = 1e-12
+max_iterations = 5000000
+
+save_model_path = "data/saved_models"
+demo_model_path = "data/saved_models"
+
+intra_encoder = True
+intra_decoder = True
+
+cuda = False
 ```
+
+你需要改的就是max_iterations = 5000000、batch_size=30这两个吧，如果有别的想法可以改别的。第一个参数是循环多少次会停止，第二个参数是一次性训练多少条数据，也就是给GPU送入多少数据，batch_size=30在我们实验室的服务器上大概占用3G的显存吧，当然这会跟显存的带宽有关系，请多试几次。
 
 ## 训练模型
 
-#### 下载PreLCSTS数据集
-链接: https://pan.baidu.com/s/12fTxxMhRcSHCSv_EcFXyHQ  密码: 39gn
-1. 下载好的文件夹放在根目录下
-2. 预处理数据
-```bash
-pip install requirements.txt
-python make_data_files.py
-```
-3. 开始训练
-```bash
+训练模型总共分为两个阶段，训练MLE，然后接着使用RL接着训练。
+
+### 训练MLE
+
+```shell
 sh train.sh
 ```
-4. 评测验证集
-```bash
+
+或者
+
+```shell
+python train.py --train_mle=yes --train_rl=no --mle_weight=1.0
+```
+
+训练开始之后会出现这样的字符：
+
+```shell
+2021-03-15 10:55:30,345 - data_util.log - INFO - log启动
+2021-03-15 10:55:31,851 - data_util.log - INFO - Bucket queue size: 0, Input queue size: 0
+2021-03-15 10:56:31,862 - data_util.log - ERROR - Found batch queue thread dead. Restarting.
+2021-03-15 10:56:31,867 - data_util.log - ERROR - Found batch queue thread dead. Restarting.
+2021-03-15 10:56:31,869 - data_util.log - ERROR - Found batch queue thread dead. Restarting.
+2021-03-15 10:56:31,870 - data_util.log - ERROR - Found batch queue thread dead. Restarting.
+2021-03-15 10:56:31,883 - data_util.log - INFO - Bucket queue size: 0, Input queue size: 28825
+2021-03-15 10:56:45,162 - data_util.log - INFO - iter:50  mle_loss:7.056  reward:0.0000
+2021-03-15 10:56:53,157 - data_util.log - INFO - iter:100  mle_loss:6.302  reward:0.0000
+2021-03-15 10:57:00,994 - data_util.log - INFO - iter:150  mle_loss:6.196  reward:0.0000
+2021-03-15 10:57:08,355 - data_util.log - INFO - iter:200  mle_loss:6.108  reward:0.0000
+2021-03-15 10:57:15,955 - data_util.log - INFO - iter:250  mle_loss:6.126  reward:0.0000
+2021-03-15 10:57:23,537 - data_util.log - INFO - iter:300  mle_loss:6.033  reward:0.0000
+2021-03-15 10:57:30,982 - data_util.log - INFO - iter:350  mle_loss:5.934  reward:0.0000
+2021-03-15 10:57:31,946 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 29936
+2021-03-15 10:57:38,275 - data_util.log - INFO - iter:400  mle_loss:5.885  reward:0.0000
+2021-03-15 10:57:46,289 - data_util.log - INFO - iter:450  mle_loss:5.862  reward:0.0000
+2021-03-15 10:57:53,543 - data_util.log - INFO - iter:500  mle_loss:5.873  reward:0.0000
+2021-03-15 10:58:01,334 - data_util.log - INFO - iter:550  mle_loss:5.828  reward:0.0000
+2021-03-15 10:58:08,818 - data_util.log - INFO - iter:600  mle_loss:5.862  reward:0.0000
+2021-03-15 10:58:16,338 - data_util.log - INFO - iter:650  mle_loss:5.840  reward:0.0000
+2021-03-15 10:58:23,746 - data_util.log - INFO - iter:700  mle_loss:5.766  reward:0.0000
+2021-03-15 10:58:31,165 - data_util.log - INFO - iter:750  mle_loss:5.867  reward:0.0000
+2021-03-15 10:58:32,003 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-15 10:58:39,490 - data_util.log - INFO - iter:800  mle_loss:5.765  reward:0.0000
+2021-03-15 10:58:47,942 - data_util.log - INFO - iter:850  mle_loss:5.769  reward:0.0000
+2021-03-15 10:58:54,740 - data_util.log - INFO - iter:900  mle_loss:5.715  reward:0.0000
+2021-03-15 10:59:02,514 - data_util.log - INFO - iter:950  mle_loss:5.766  reward:0.0000
+2021-03-15 10:59:10,067 - data_util.log - INFO - iter:1000  mle_loss:5.741  reward:0.0000
+2021-03-15 10:59:17,518 - data_util.log - INFO - iter:1050  mle_loss:5.679  reward:0.0000
+2021-03-15 10:59:24,629 - data_util.log - INFO - iter:1100  mle_loss:5.714  reward:0.0000
+2021-03-15 10:59:32,057 - data_util.log - INFO - iter:1150  mle_loss:5.666  reward:0.0000
+2021-03-15 10:59:32,064 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-15 10:59:40,150 - data_util.log - INFO - iter:1200  mle_loss:5.660  reward:0.0000
+2021-03-15 10:59:49,003 - data_util.log - INFO - iter:1250  mle_loss:5.636  reward:0.0000
+2021-03-15 10:59:56,388 - data_util.log - INFO - iter:1300  mle_loss:5.597  reward:0.0000
+2021-03-15 11:00:03,390 - data_util.log - INFO - iter:1350  mle_loss:5.579  reward:0.0000
+2021-03-15 11:00:10,570 - data_util.log - INFO - iter:1400  mle_loss:5.706  reward:0.0000
+2021-03-15 11:00:17,938 - data_util.log - INFO - iter:1450  mle_loss:5.644  reward:0.0000
+2021-03-15 11:00:24,644 - data_util.log - INFO - iter:1500  mle_loss:5.618  reward:0.0000
+2021-03-15 11:00:32,124 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-15 11:00:32,585 - data_util.log - INFO - iter:1550  mle_loss:5.634  reward:0.0000
+2021-03-15 11:00:40,778 - data_util.log - INFO - iter:1600  mle_loss:5.525  reward:0.0000
+2021-03-15 11:00:48,666 - data_util.log - INFO - iter:1650  mle_loss:5.581  reward:0.0000
+2021-03-15 11:00:54,864 - data_util.log - INFO - iter:1700  mle_loss:5.554  reward:0.0000
+2021-03-15 11:01:01,017 - data_util.log - INFO - iter:1750  mle_loss:5.611  reward:0.0000
+2021-03-15 11:01:07,166 - data_util.log - INFO - iter:1800  mle_loss:5.484  reward:0.0000
+2021-03-15 11:01:13,867 - data_util.log - INFO - iter:1850  mle_loss:5.494  reward:0.0000
+2021-03-15 11:01:21,360 - data_util.log - INFO - iter:1900  mle_loss:5.545  reward:0.0000
+2021-03-15 11:01:29,120 - data_util.log - INFO - iter:1950  mle_loss:5.588  reward:0.0000
+2021-03-15 11:01:32,152 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+```
+
+当然了，如果你出现了`2021-03-15 11:01:32,152 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000`一直是这个，证明你没有开始训练，这种问题我也出现过，修改超参数比如最大迭代次数问题就应该可以解决了，代码是没有问题的。
+
+### 训练过程中eval
+
+当你觉得loss值不再变的时候，可以进行强化学习：
+
+```shell
+2021-03-16 08:23:41,143 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-16 08:23:47,014 - data_util.log - INFO - iter:516300  mle_loss:3.463  reward:0.0000
+2021-03-16 08:23:54,694 - data_util.log - INFO - iter:516350  mle_loss:3.434  reward:0.0000
+2021-03-16 08:24:03,135 - data_util.log - INFO - iter:516400  mle_loss:3.403  reward:0.0000
+2021-03-16 08:24:10,869 - data_util.log - INFO - iter:516450  mle_loss:3.437  reward:0.0000
+2021-03-16 08:24:18,269 - data_util.log - INFO - iter:516500  mle_loss:3.393  reward:0.0000
+2021-03-16 08:24:26,026 - data_util.log - INFO - iter:516550  mle_loss:3.414  reward:0.0000
+2021-03-16 08:24:33,511 - data_util.log - INFO - iter:516600  mle_loss:3.504  reward:0.0000
+2021-03-16 08:24:41,203 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-16 08:24:41,309 - data_util.log - INFO - iter:516650  mle_loss:3.472  reward:0.0000
+2021-03-16 08:24:49,410 - data_util.log - INFO - iter:516700  mle_loss:3.479  reward:0.0000
+2021-03-16 08:24:57,243 - data_util.log - INFO - iter:516750  mle_loss:3.563  reward:0.0000
+2021-03-16 08:25:06,059 - data_util.log - INFO - iter:516800  mle_loss:3.540  reward:0.0000
+2021-03-16 08:25:13,879 - data_util.log - INFO - iter:516850  mle_loss:3.551  reward:0.0000
+2021-03-16 08:25:20,023 - data_util.log - INFO - iter:516900  mle_loss:3.595  reward:0.0000
+2021-03-16 08:25:27,078 - data_util.log - INFO - iter:516950  mle_loss:3.717  reward:0.0000
+2021-03-16 08:25:33,924 - data_util.log - INFO - iter:517000  mle_loss:3.560  reward:0.0000
+2021-03-16 08:25:41,259 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-16 08:25:41,488 - data_util.log - INFO - iter:517050  mle_loss:3.472  reward:0.0000
+2021-03-16 08:25:48,918 - data_util.log - INFO - iter:517100  mle_loss:3.520  reward:0.0000
+2021-03-16 08:25:56,369 - data_util.log - INFO - iter:517150  mle_loss:3.456  reward:0.0000
+2021-03-16 08:26:04,071 - data_util.log - INFO - iter:517200  mle_loss:3.503  reward:0.0000
+2021-03-16 08:26:11,431 - data_util.log - INFO - iter:517250  mle_loss:3.509  reward:0.0000
+2021-03-16 08:26:17,750 - data_util.log - INFO - iter:517300  mle_loss:3.488  reward:0.0000
+2021-03-16 08:26:23,923 - data_util.log - INFO - iter:517350  mle_loss:3.670  reward:0.0000
+2021-03-16 08:26:30,206 - data_util.log - INFO - iter:517400  mle_loss:3.510  reward:0.0000
+2021-03-16 08:26:36,375 - data_util.log - INFO - iter:517450  mle_loss:3.606  reward:0.0000
+2021-03-16 08:26:41,319 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+```
+
+然后运行以下指令（主要是找出来哪个模型最好，以便于使用强化学习接着训练）：
+
+运行
+
+```shell
 sh eval.sh
 ```
-5. 选出效果最好的模型,改shell脚本，进行再训练
-```bash
-sh train_lr.sh
+
+```shell
+sh eval.sh
 ```
-6. 选出效果最好的模型，改shell脚本，进行测试
-```bash
+
+或者
+
+```shell
+python eval.py --task=validate --start_from=0005000.tar
+```
+
+从第一个模型开始评分：
+
+```shell
+2021-03-18 14:48:03,350 - data_util.log - INFO - log启动
+2021-03-18 14:49:32,299 - data_util.log - INFO - log启动
+2021-03-18 14:49:34,276 - data_util.log - INFO - 
+2021-03-18 14:49:49,181 - data_util.log - INFO - 0005000.tar rouge_1:0.1865 rouge_2:0.0661 rouge_l:0.1900
+2021-03-18 14:49:49,227 - data_util.log - INFO - 
+2021-03-18 14:50:00,993 - data_util.log - INFO - 0010000.tar rouge_1:0.1965 rouge_2:0.0716 rouge_l:0.2019
+2021-03-18 14:50:01,038 - data_util.log - INFO - 
+2021-03-18 14:50:12,789 - data_util.log - INFO - 0015000.tar rouge_1:0.2301 rouge_2:0.0868 rouge_l:0.2244
+...
+2021-03-18 15:00:36,958 - data_util.log - INFO - 
+2021-03-18 15:00:48,971 - data_util.log - INFO - 0265000.tar rouge_1:0.2856 rouge_2:0.1161 rouge_l:0.2828
+2021-03-18 15:00:49,024 - data_util.log - INFO - 
+2021-03-18 15:01:01,095 - data_util.log - INFO - 0270000.tar rouge_1:0.2802 rouge_2:0.1028 rouge_l:0.2716
+2021-03-18 15:01:49,636 - data_util.log - INFO - 
+...
+2021-03-18 15:10:38,436 - data_util.log - INFO - 
+2021-03-18 15:10:52,565 - data_util.log - INFO - 0505000.tar rouge_1:0.2513 rouge_2:0.0926 rouge_l:0.2486
+2021-03-18 15:10:52,690 - data_util.log - INFO - 
+2021-03-18 15:11:06,227 - data_util.log - INFO - 0510000.tar rouge_1:0.2461 rouge_2:0.0885 rouge_l:0.2474
+2021-03-18 15:11:06,338 - data_util.log - INFO - 
+2021-03-18 15:11:20,102 - data_util.log - INFO - 0515000.tar rouge_1:0.2560 rouge_2:0.1003 rouge_l:0.2515
+```
+
+可以看出来026500.tar模型比较好，用来接着强化训练：
+
+```shell
+2021-03-18 15:22:07,362 - data_util.log - INFO - Bucket queue size: 10, Input queue size: 20657
+2021-03-18 15:22:35,495 - data_util.log - INFO - iter:265050  mle_loss:3.474  reward:0.2142
+2021-03-18 15:22:58,299 - data_util.log - INFO - iter:265100  mle_loss:3.413  reward:0.2192
+2021-03-18 15:23:07,424 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-18 15:23:21,118 - data_util.log - INFO - iter:265150  mle_loss:3.449  reward:0.2186
+2021-03-18 15:23:43,964 - data_util.log - INFO - iter:265200  mle_loss:3.554  reward:0.2085
+2021-03-18 15:24:06,700 - data_util.log - INFO - iter:265250  mle_loss:3.540  reward:0.2105
+...
+2021-03-19 11:00:55,158 - data_util.log - INFO - Bucket queue size: 14, Input queue size: 21296
+2021-03-19 11:01:16,996 - data_util.log - INFO - iter:465050  mle_loss:2.570  reward:0.3077
+2021-03-19 11:01:33,264 - data_util.log - INFO - iter:465100  mle_loss:2.588  reward:0.3014
+2021-03-19 11:01:49,346 - data_util.log - INFO - iter:465150  mle_loss:2.620  reward:0.2966
+2021-03-19 11:01:55,266 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-19 11:02:05,480 - data_util.log - INFO - iter:465200  mle_loss:2.601  reward:0.3004
+2021-03-19 11:02:21,891 - data_util.log - INFO - iter:465250  mle_loss:2.589  reward:0.3069
+2021-03-19 11:02:38,028 - data_util.log - INFO - iter:465300  mle_loss:2.627  reward:0.3010
+2021-03-19 11:02:54,130 - data_util.log - INFO - iter:465350  mle_loss:2.660  reward:0.3000
+2021-03-19 11:02:55,323 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+....
+2021-03-20 10:54:40,981 - data_util.log - INFO - iter:710400  mle_loss:2.293  reward:0.3385
+2021-03-20 10:55:13,309 - data_util.log - INFO - iter:710450  mle_loss:2.271  reward:0.3549
+2021-03-20 10:55:14,011 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-20 10:55:47,040 - data_util.log - INFO - iter:710500  mle_loss:2.247  reward:0.3531
+2021-03-20 10:56:14,072 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-20 10:56:19,350 - data_util.log - INFO - iter:710550  mle_loss:2.265  reward:0.3451
+2021-03-20 10:56:45,297 - data_util.log - INFO - iter:710600  mle_loss:2.262  reward:0.3450
+2021-03-20 10:57:14,139 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 30000
+2021-03-20 10:57:19,086 - data_util.log - INFO - iter:710650  mle_loss:2.239  reward:0.3375
+2021-03-20 10:57:49,225 - data_util.log - INFO - iter:710700  mle_loss:2.287  reward:0.3432
+```
+
+## 测试
+
+到这一步的时候，已经产生很多个模型，结束训练之后，重复eval步骤，找到最佳模型进行测试。
+
+```shell
+2021-03-20 11:00:28,335 - data_util.log - INFO - log启动
+2021-03-20 11:00:31,198 - data_util.log - INFO - 
+2021-03-20 11:00:44,904 - data_util.log - INFO - 0005000.tar rouge_1:0.1865 rouge_2:0.0661 rouge_l:0.1900
+2021-03-20 11:00:44,991 - data_util.log - INFO - 
+2021-03-20 11:00:56,660 - data_util.log - INFO - 0010000.tar rouge_1:0.1965 rouge_2:0.0716 rouge_l:0.2019
+...
+021-03-20 11:29:07,925 - data_util.log - INFO - 
+2021-03-20 11:29:19,739 - data_util.log - INFO - 0685000.tar rouge_1:0.3226 rouge_2:0.1505 rouge_l:0.3173
+2021-03-20 11:29:19,785 - data_util.log - INFO - 
+2021-03-20 11:29:31,498 - data_util.log - INFO - 0690000.tar rouge_1:0.3285 rouge_2:0.1612 rouge_l:0.3278
+2021-03-20 11:29:31,544 - data_util.log - INFO - 
+2021-03-20 11:29:43,224 - data_util.log - INFO - 0695000.tar rouge_1:0.3336 rouge_2:0.1663 rouge_l:0.3274
+2021-03-20 11:29:43,282 - data_util.log - INFO - 
+2021-03-20 11:29:54,924 - data_util.log - INFO - 0700000.tar rouge_1:0.3366 rouge_2:0.1652 rouge_l:0.3350
+2021-03-20 11:29:54,970 - data_util.log - INFO - 
+2021-03-20 11:30:06,664 - data_util.log - INFO - 0705000.tar rouge_1:0.3406 rouge_2:0.1646 rouge_l:0.3383
+2021-03-20 11:30:06,709 - data_util.log - INFO - 
+2021-03-20 11:30:18,694 - data_util.log - INFO - 0710000.tar rouge_1:0.3175 rouge_2:0.1606 rouge_l:0.3181
+```
+
+经过查找之后，可以发现0705000.tar模型是最优的：rouge_1的分数为34.06，rouge_2的分数为16.46，rouge_l的分数为33.83。
+
+查看生成的文章摘要文件：
+
+```
+article: 和平时期 瑞德 的 身份 是 叙利亚 男足 国家青年队 成员 7 个 月 前 他 的 身份 变为 寄居 黎巴嫩 的 难民 现在 他 的 身份 是 肾源 叙利亚 难民 正面 对 第三个 冬天 瑞德 的 故事 变得 普遍 肾 却 廉价 他 依靠 卖出 的 肾 度过 这个 冬天 却 不 知道 下个 冬天 会 怎样
+ref: 叙利亚 前国足 队员 靠 卖 肾 过冬
+dec: 叙利亚 [UNK] 队员 靠 卖 肾 过冬
+
+article: A股 上市公司 一 季报 披露 完毕 投资 动向 隐秘 的 私募 大佬 们 的 不少 重仓股 也 随之 浮出 水面 比起 年报 相对 滞后 的 数据 一 季报 中 披露 出来 的 私募 重仓股 的 数据 显然 时效性 更强 投资者 也 更 能 从 数据 中一 窥 他们 对 当年 行情 的 大概 布局 思路
+ref: 私募 大佬 一季度 重仓股 含金量 分析
+dec: 私募 大佬 重仓股 曝光 王亚伟 重仓股 曝光
+
+article: 杭州市 有关 部门 规定 如果 商品房 实际 成交价 低于 备案 价格 15% 以上 将 通过 技术手段 限制 网 签限降 还是 不限降 其实 不难 甄别 最能 让 政策 不 被 误读 的 方法 是 不要 对 楼市 价格 出现 的 变动 轻易 表态 让 市场 自行决定 楼市 价格 走势 但 这 一点 恐怕 做 不到
+ref: 杭州 商品房 限降 有 多少 误读
+dec: 杭州 商品房 价格 不能 误读
+
+article: 近日 私募 排排 网对 全国 近 60 家 私募 基金 进行 问卷调查 显示 私募 基金 对 12 月 行情 相对 乐观 6607% 私募 看涨 相比 11 月 大幅提高 3232% 认为 12 月 存在 结构性 机会 2857% 私募 认为 会 横盘 整理 仅 有 536% 私募 看跌 但 对于 创业板 绝大部分 私募 表示 谨慎
+ref: 六成 私募 基金 看涨 12 月 股市行情
+dec: 六成 私募 基金 对 12 月 策略 乐观
+
+article: 拟 选址 的 九峰 项目 位于 余杭 中 泰 街道 靠近 临安 这里 以前 是 个 矿坑 相对 较 封闭 偏僻 住户 也 较 少 当然 项目 正式 开工 前 还要 进行 环境影响 评价 有关 部门 表示 会 邀请 媒体 市民 代表 献计献策 一起 参与 提出 自己 的 意见 和 建议
+ref: 杭州 西部 规划 建设 垃圾焚烧 厂
+dec: 杭州 杭州 将建 垃圾焚烧 城 市民 市民 请 注意
+
+article: 一种 货币 要 成为 国际 货币 必 满足 几个 基本 条件 首先 是 经济体 的 大小 再 是 币值 的 稳定性 另外 惯性 也 是 货币 国际化 中 不可 忽略 的 一点 中长期 来看 人民币 国际化 的 方向 固然 不变 但 速度 上 仍 需 配合 国内 经济 的 转型
+ref: 人民币 国际化 还 缺什么
+dec: 人民币 国际化 的 [UNK]
+
+article: 国务院 5 月 16 日 公布 通知 要求 大力 促进 就业 公平 高校 毕业生 招聘 不得 设置 性别 毕业 院校 年龄 户籍 等 作为 限制性 要求 据 教育部 新近 公布 的 数字 2013 年 全国 高校 毕业生 达 699 万人 比 2012 年 增加 19 万 刷新纪录
+ref: 国务院 要求 招聘 高校 毕业生 不得 设置 年龄 性别 等 限制
+dec: 国务院 高校 毕业生 招聘 禁止 设 年龄 限制
+
+article: 国务院 总理 李克强 昨日 主持 召开 国务院 常务会议 部署 加快 推进 节水 供水 重大 水利工程 建设 决定 大幅 增加 国家 创投 引导 资金 促进 新兴产业 发展 开展 大型 灌区 建设工程 建立 政府 和 市场 有机 结合 的 机制 鼓励 和 吸引 社会 资本 参与 工程建设 和 管理
+ref: 国务院 推进 172 项 重大 水利工程 建设
+dec: 国务院 加快 推进 节水 供水 重大 水利工程 建设
+
+article: 日前 国家 卫 计委 起草 了 医疗 质量 管理 办法 征求意见 稿 并 已 公开 征求意见 其中 规定 医护人员 由于 不负责任 延误 急危 患者 抢救 和 诊治 造成 严重后果 泄露 患者 隐私 开展 医疗 活动 未 遵守 知情 同意 原则 等 构成犯罪 的 依法追究 刑事责任
+ref: 医生 泄露 患者 隐私 拟 追 刑责
+dec: 中国 泄露 患者 隐私 拟 追 刑责
+
+article: 任志强 表示 之前 几年 能够 预测 敢于 预测 是因为 通过观察 总结 已经 摸清 了 前任 政府 的 楼市 政策 思路 但是 这 一届 政府 只要 不 知道 政策 走向 就 无法 预测 根据 惯例 十八 届 三中全会 将 决定 本届 政府 的 经济 政策 届时 才能 看 明白 中国 经济 周刊
+ref: 任志强 不敢 做 房价 预测 帝 了
+dec: 任志强 今年 将 [UNK] 预测
+
+article: 高考 在 即 备受 关注 的 高考 改革方案 初见端倪 据 媒体报道 包括 高考 改革 在内 的 教育 考试制度 的 基本 框架 和 总体 思路 目前 已 完成 初稿 笔者 以为 如果 不 愿意 撼动 既得利益 不能 从 自身 放权 做起 将 贻误 改革 的 时机 也 将 消耗 政府部门 的 公信力
+ref: 高考 改革 要 啃 硬骨头
+dec: 高考 改革 要 啃 硬骨头
+```
+
+现在开始测试
+
+运行
+
+```shell
 sh test.sh
 ```
 
-## 训练中间过程
-#### 训练时损失函数降低
-```
-2020-07-04 12:58:38,434 - data_util.log - INFO - Bucket queue size: 0, Input queue size: 0
-2020-07-04 12:59:38,499 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 65600
-2020-07-04 13:00:30,526 - data_util.log - INFO - iter:50  mle_loss:6.481  reward:0.0000
-2020-07-04 13:00:38,552 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:01:07,877 - data_util.log - INFO - iter:100  mle_loss:6.031  reward:0.0000
-2020-07-04 13:01:38,612 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:01:46,061 - data_util.log - INFO - iter:150  mle_loss:5.883  reward:0.0000
-2020-07-04 13:02:24,137 - data_util.log - INFO - iter:200  mle_loss:5.790  reward:0.0000
-2020-07-04 13:02:38,620 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:03:03,381 - data_util.log - INFO - iter:250  mle_loss:5.740  reward:0.0000
-2020-07-04 13:03:38,633 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:03:42,141 - data_util.log - INFO - iter:300  mle_loss:5.690  reward:0.0000
-2020-07-04 13:04:20,430 - data_util.log - INFO - iter:350  mle_loss:5.623  reward:0.0000
-2020-07-04 13:04:38,692 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:04:59,155 - data_util.log - INFO - iter:400  mle_loss:5.592  reward:0.0000
-2020-07-04 13:05:37,330 - data_util.log - INFO - iter:450  mle_loss:5.531  reward:0.0000
-2020-07-04 13:05:38,752 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:06:16,069 - data_util.log - INFO - iter:500  mle_loss:5.473  reward:0.0000
-2020-07-04 13:06:38,812 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-04 13:06:55,706 - data_util.log - INFO - iter:550  mle_loss:5.459  reward:0.0000
-2020-07-04 13:07:33,658 - data_util.log - INFO - iter:600  mle_loss:5.366  reward:0.0000
-2020-07-04 13:07:38,873 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-...
-2020-07-06 09:24:01,484 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 299732
-2020-07-06 09:24:04,571 - data_util.log - INFO - iter:206800  mle_loss:2.631  reward:0.0000
-2020-07-06 09:24:42,961 - data_util.log - INFO - iter:206850  mle_loss:2.639  reward:0.0000
-2020-07-06 09:25:01,511 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-06 09:25:20,772 - data_util.log - INFO - iter:206900  mle_loss:2.653  reward:0.0000
-2020-07-06 09:26:00,946 - data_util.log - INFO - iter:206950  mle_loss:2.657  reward:0.0000
-2020-07-06 09:26:01,571 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-06 09:26:38,844 - data_util.log - INFO - iter:207000  mle_loss:2.666  reward:0.0000
-2020-07-06 09:27:01,600 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-06 09:27:16,921 - data_util.log - INFO - iter:207050  mle_loss:2.634  reward:0.0000
-2020-07-06 09:27:54,971 - data_util.log - INFO - iter:207100  mle_loss:2.658  reward:0.0000
-2020-07-06 09:28:01,661 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-06 09:28:32,825 - data_util.log - INFO - iter:207150  mle_loss:2.620  reward:0.0000
-2020-07-06 09:29:01,721 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-06 09:29:10,510 - data_util.log - INFO - iter:207200  mle_loss:2.665  reward:0.0000
-2020-07-06 09:29:50,878 - data_util.log - INFO - iter:207250  mle_loss:2.656  reward:0.0000
-2020-07-06 09:30:01,782 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 300000
-2020-07-06 09:30:29,142 - data_util.log - INFO - iter:207300  mle_loss:2.662  reward:0.0000
-```
-#### 第一步验证集验证（0200000.tar模型最佳）
-```
-2020-07-13 14:12:15,025 - data_util.log - INFO - 0005000.tar rouge_1:0.2338 rouge_2:0.0837 rouge_l:0.2338
-2020-07-13 14:12:15,060 - data_util.log - INFO - 
-2020-07-13 14:12:21,874 - data_util.log - INFO - 0010000.tar rouge_1:0.2782 rouge_2:0.1240 rouge_l:0.2699
-2020-07-13 14:12:21,908 - data_util.log - INFO - 
-2020-07-13 14:12:28,677 - data_util.log - INFO - 0015000.tar rouge_1:0.2833 rouge_2:0.1211 rouge_l:0.2751
-2020-07-13 14:12:28,712 - data_util.log - INFO - 
-2020-07-13 14:12:35,460 - data_util.log - INFO - 0020000.tar rouge_1:0.3009 rouge_2:0.1351 rouge_l:0.2898
-2020-07-13 14:12:35,496 - data_util.log - INFO - 
-2020-07-13 14:12:42,312 - data_util.log - INFO - 0025000.tar rouge_1:0.3121 rouge_2:0.1397 rouge_l:0.3074
-2020-07-13 14:12:42,348 - data_util.log - INFO - 
-2020-07-13 14:12:49,107 - data_util.log - INFO - 0030000.tar rouge_1:0.2947 rouge_2:0.1264 rouge_l:0.2898
-2020-07-13 14:12:49,142 - data_util.log - INFO - 
-2020-07-13 14:12:56,030 - data_util.log - INFO - 0035000.tar rouge_1:0.2959 rouge_2:0.1317 rouge_l:0.2870
-2020-07-13 14:12:56,067 - data_util.log - INFO - 
-2020-07-13 14:13:02,853 - data_util.log - INFO - 0040000.tar rouge_1:0.3200 rouge_2:0.1388 rouge_l:0.3082
-2020-07-13 14:13:02,887 - data_util.log - INFO - 
-2020-07-13 14:13:09,660 - data_util.log - INFO - 0045000.tar rouge_1:0.2928 rouge_2:0.1212 rouge_l:0.2851
-2020-07-13 14:13:09,695 - data_util.log - INFO - 
-2020-07-13 14:13:16,485 - data_util.log - INFO - 0050000.tar rouge_1:0.2910 rouge_2:0.1332 rouge_l:0.2883
-2020-07-13 14:13:16,519 - data_util.log - INFO - 
-2020-07-13 14:13:23,372 - data_util.log - INFO - 0055000.tar rouge_1:0.3003 rouge_2:0.1341 rouge_l:0.2917
-2020-07-13 14:13:23,406 - data_util.log - INFO - 
-2020-07-13 14:13:30,218 - data_util.log - INFO - 0060000.tar rouge_1:0.3154 rouge_2:0.1498 rouge_l:0.3087
-2020-07-13 14:13:30,253 - data_util.log - INFO - 
-2020-07-13 14:13:37,074 - data_util.log - INFO - 0065000.tar rouge_1:0.3137 rouge_2:0.1324 rouge_l:0.3060
-2020-07-13 14:13:37,108 - data_util.log - INFO - 
-2020-07-13 14:13:44,033 - data_util.log - INFO - 0070000.tar rouge_1:0.3128 rouge_2:0.1631 rouge_l:0.3055
-2020-07-13 14:13:44,067 - data_util.log - INFO - 
-2020-07-13 14:13:50,852 - data_util.log - INFO - 0075000.tar rouge_1:0.3072 rouge_2:0.1439 rouge_l:0.3047
-2020-07-13 14:13:50,886 - data_util.log - INFO - 
-2020-07-13 14:13:57,661 - data_util.log - INFO - 0080000.tar rouge_1:0.3141 rouge_2:0.1339 rouge_l:0.3038
-2020-07-13 14:13:57,696 - data_util.log - INFO - 
-2020-07-13 14:14:04,535 - data_util.log - INFO - 0085000.tar rouge_1:0.3093 rouge_2:0.1337 rouge_l:0.3049
-2020-07-13 14:14:04,570 - data_util.log - INFO - 
-2020-07-13 14:14:11,412 - data_util.log - INFO - 0090000.tar rouge_1:0.3119 rouge_2:0.1434 rouge_l:0.3058
-2020-07-13 14:14:11,447 - data_util.log - INFO - 
-2020-07-13 14:14:18,227 - data_util.log - INFO - 0095000.tar rouge_1:0.3109 rouge_2:0.1490 rouge_l:0.3067
-2020-07-13 14:14:18,262 - data_util.log - INFO - 
-2020-07-13 14:14:25,106 - data_util.log - INFO - 0100000.tar rouge_1:0.3217 rouge_2:0.1566 rouge_l:0.3159
-2020-07-13 14:14:25,140 - data_util.log - INFO - 
-2020-07-13 14:14:32,051 - data_util.log - INFO - 0105000.tar rouge_1:0.3349 rouge_2:0.1560 rouge_l:0.3277
-2020-07-13 14:14:32,086 - data_util.log - INFO - 
-2020-07-13 14:14:38,902 - data_util.log - INFO - 0110000.tar rouge_1:0.3251 rouge_2:0.1640 rouge_l:0.3179
-2020-07-13 14:14:38,936 - data_util.log - INFO - 
-2020-07-13 14:14:45,719 - data_util.log - INFO - 0115000.tar rouge_1:0.2923 rouge_2:0.1306 rouge_l:0.2940
-2020-07-13 14:14:45,753 - data_util.log - INFO - 
-2020-07-13 14:14:52,565 - data_util.log - INFO - 0120000.tar rouge_1:0.3208 rouge_2:0.1511 rouge_l:0.3173
-2020-07-13 14:14:52,600 - data_util.log - INFO - 
-2020-07-13 14:14:59,384 - data_util.log - INFO - 0125000.tar rouge_1:0.3210 rouge_2:0.1564 rouge_l:0.3176
-2020-07-13 14:14:59,418 - data_util.log - INFO - 
-2020-07-13 14:15:06,218 - data_util.log - INFO - 0130000.tar rouge_1:0.3092 rouge_2:0.1534 rouge_l:0.3034
-2020-07-13 14:15:06,252 - data_util.log - INFO - 
-2020-07-13 14:15:13,101 - data_util.log - INFO - 0135000.tar rouge_1:0.3069 rouge_2:0.1536 rouge_l:0.3060
-2020-07-13 14:15:13,135 - data_util.log - INFO - 
-2020-07-13 14:15:19,985 - data_util.log - INFO - 0140000.tar rouge_1:0.3436 rouge_2:0.1842 rouge_l:0.3392
-2020-07-13 14:15:20,019 - data_util.log - INFO - 
-2020-07-13 14:15:26,786 - data_util.log - INFO - 0145000.tar rouge_1:0.3205 rouge_2:0.1748 rouge_l:0.3191
-2020-07-13 14:15:26,821 - data_util.log - INFO - 
-2020-07-13 14:15:33,613 - data_util.log - INFO - 0150000.tar rouge_1:0.3253 rouge_2:0.1786 rouge_l:0.3198
-2020-07-13 14:15:33,648 - data_util.log - INFO - 
-2020-07-13 14:15:40,436 - data_util.log - INFO - 0155000.tar rouge_1:0.3282 rouge_2:0.1720 rouge_l:0.3218
-2020-07-13 14:15:40,469 - data_util.log - INFO - 
-2020-07-13 14:15:47,228 - data_util.log - INFO - 0160000.tar rouge_1:0.3243 rouge_2:0.1690 rouge_l:0.3204
-2020-07-13 14:15:47,262 - data_util.log - INFO - 
-2020-07-13 14:15:54,078 - data_util.log - INFO - 0165000.tar rouge_1:0.3223 rouge_2:0.1592 rouge_l:0.3160
-2020-07-13 14:15:54,114 - data_util.log - INFO - 
-2020-07-13 14:16:00,915 - data_util.log - INFO - 0170000.tar rouge_1:0.3393 rouge_2:0.1788 rouge_l:0.3329
-2020-07-13 14:16:00,950 - data_util.log - INFO - 
-2020-07-13 14:16:07,790 - data_util.log - INFO - 0175000.tar rouge_1:0.3156 rouge_2:0.1729 rouge_l:0.3139
-2020-07-13 14:16:07,825 - data_util.log - INFO - 
-2020-07-13 14:16:14,601 - data_util.log - INFO - 0180000.tar rouge_1:0.3321 rouge_2:0.1717 rouge_l:0.3285
-2020-07-13 14:16:14,635 - data_util.log - INFO - 
-2020-07-13 14:16:21,411 - data_util.log - INFO - 0185000.tar rouge_1:0.3328 rouge_2:0.1812 rouge_l:0.3338
-2020-07-13 14:16:21,444 - data_util.log - INFO - 
-2020-07-13 14:16:28,230 - data_util.log - INFO - 0190000.tar rouge_1:0.3313 rouge_2:0.1610 rouge_l:0.3288
-2020-07-13 14:16:28,264 - data_util.log - INFO - 
-2020-07-13 14:16:35,013 - data_util.log - INFO - 0195000.tar rouge_1:0.3418 rouge_2:0.1818 rouge_l:0.3397
-2020-07-13 14:16:35,047 - data_util.log - INFO - 
-2020-07-13 14:16:41,848 - data_util.log - INFO - 0200000.tar rouge_1:0.3553 rouge_2:0.1843 rouge_l:0.3481
-2020-07-13 14:16:41,883 - data_util.log - INFO - 
-2020-07-13 14:16:48,698 - data_util.log - INFO - 0205000.tar rouge_1:0.3442 rouge_2:0.1815 rouge_l:0.3393
-```
-#### 选择0200000.tar再次训练
-```
-2020-07-13 14:31:09,581 - data_util.log - INFO - iter:200050  mle_loss:2.367  reward:0.3033
-2020-07-13 14:31:36,368 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:31:41,245 - data_util.log - INFO - iter:200100  mle_loss:2.393  reward:0.3069
-2020-07-13 14:32:12,697 - data_util.log - INFO - iter:200150  mle_loss:2.526  reward:0.2882
-2020-07-13 14:32:36,427 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:32:43,759 - data_util.log - INFO - iter:200200  mle_loss:2.510  reward:0.3058
-2020-07-13 14:33:15,042 - data_util.log - INFO - iter:200250  mle_loss:2.330  reward:0.3175
-2020-07-13 14:33:36,487 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:33:46,385 - data_util.log - INFO - iter:200300  mle_loss:2.339  reward:0.3113
-2020-07-13 14:34:17,783 - data_util.log - INFO - iter:200350  mle_loss:2.379  reward:0.3184
-2020-07-13 14:34:36,547 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:34:49,007 - data_util.log - INFO - iter:200400  mle_loss:2.374  reward:0.3214
-2020-07-13 14:35:20,016 - data_util.log - INFO - iter:200450  mle_loss:2.377  reward:0.3169
-2020-07-13 14:35:36,607 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:35:51,009 - data_util.log - INFO - iter:200500  mle_loss:2.535  reward:0.3105
-2020-07-13 14:36:22,214 - data_util.log - INFO - iter:200550  mle_loss:2.513  reward:0.3016
-2020-07-13 14:36:36,667 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:36:52,763 - data_util.log - INFO - iter:200600  mle_loss:2.346  reward:0.3243
-2020-07-13 14:37:23,430 - data_util.log - INFO - iter:200650  mle_loss:2.387  reward:0.3087
-2020-07-13 14:37:36,727 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:37:54,837 - data_util.log - INFO - iter:200700  mle_loss:2.519  reward:0.3004
-2020-07-13 14:38:25,886 - data_util.log - INFO - iter:200750  mle_loss:2.370  reward:0.3152
-2020-07-13 14:38:36,787 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 14:38:57,339 - data_util.log - INFO - iter:200800  mle_loss:2.863  reward:0.2670
-2020-07-13 14:39:29,184 - data_util.log - INFO - iter:200850  mle_loss:2.580  reward:0.2928
-2020-07-13 14:39:36,830 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-...
-2020-07-13 17:09:45,033 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:10:15,191 - data_util.log - INFO - iter:215250  mle_loss:2.443  reward:0.3088
-2020-07-13 17:10:45,091 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:10:47,063 - data_util.log - INFO - iter:215300  mle_loss:2.512  reward:0.2928
-2020-07-13 17:11:18,852 - data_util.log - INFO - iter:215350  mle_loss:2.186  reward:0.3183
-2020-07-13 17:11:45,151 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:11:50,751 - data_util.log - INFO - iter:215400  mle_loss:2.303  reward:0.3289
-2020-07-13 17:12:22,880 - data_util.log - INFO - iter:215450  mle_loss:2.335  reward:0.3426
-2020-07-13 17:12:45,211 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:12:55,016 - data_util.log - INFO - iter:215500  mle_loss:2.339  reward:0.3290
-2020-07-13 17:13:26,842 - data_util.log - INFO - iter:215550  mle_loss:2.379  reward:0.3230
-2020-07-13 17:13:45,271 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:13:58,166 - data_util.log - INFO - iter:215600  mle_loss:2.474  reward:0.3069
-2020-07-13 17:14:29,588 - data_util.log - INFO - iter:215650  mle_loss:2.357  reward:0.3247
-2020-07-13 17:14:45,331 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:15:01,584 - data_util.log - INFO - iter:215700  mle_loss:2.505  reward:0.3078
-2020-07-13 17:15:33,432 - data_util.log - INFO - iter:215750  mle_loss:2.261  reward:0.3262
-2020-07-13 17:15:45,391 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:16:05,635 - data_util.log - INFO - iter:215800  mle_loss:2.480  reward:0.3156
-2020-07-13 17:16:37,601 - data_util.log - INFO - iter:215850  mle_loss:2.395  reward:0.3326
-2020-07-13 17:16:45,452 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
-2020-07-13 17:17:09,609 - data_util.log - INFO - iter:215900  mle_loss:2.487  reward:0.3044
-2020-07-13 17:17:41,977 - data_util.log - INFO - iter:215950  mle_loss:2.399  reward:0.3388
-2020-07-13 17:17:45,511 - data_util.log - INFO - Bucket queue size: 1000, Input queue size: 10000
+或者
+
+```shell
+python eval.py --task=test --load_model=0705000.tar
 ```
 
-#### 第二次用验证集验证
+实验结果：
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20210320161426639.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzM0ODk2MjA5,size_16,color_FFFFFF,t_70)
+
+说实话不上个图都觉得自己跑出来个假数据。
+
+可以看到测试集的效果：rouge1：31.87,rouge2:15.47,rouge_l:30.93
+
+## 实验结果
+
+| 指标    | 验证集 | 测试集 |
+| ------- | ------ | ------ |
+| ROUGE-1 | 34.06  | 31.87  |
+| ROUGE-2 | 16.46  | 15.47  |
+| ROUGE-L | 33.83  | 30.93  |
+
+## 实验结果分析
+
 ```
-2020-07-13 17:19:01,530 - data_util.log - INFO - 0200000.tar rouge_1:0.3553 rouge_2:0.1843 rouge_l:0.3481
-2020-07-13 17:19:01,564 - data_util.log - INFO - 
-2020-07-13 17:19:08,650 - data_util.log - INFO - 0205000.tar rouge_1:0.3449 rouge_2:0.1748 rouge_l:0.3376
-2020-07-13 17:19:08,684 - data_util.log - INFO - 
-2020-07-13 17:19:15,766 - data_util.log - INFO - 0210000.tar rouge_1:0.3335 rouge_2:0.1635 rouge_l:0.3312
-2020-07-13 17:19:15,800 - data_util.log - INFO - 
-2020-07-13 17:19:22,869 - data_util.log - INFO - 0215000.tar rouge_1:0.3486 rouge_2:0.1842 rouge_l:0.3467
+article: 和平时期 瑞德 的 身份 是 叙利亚 男足 国家青年队 成员 7 个 月 前 他 的 身份 变为 寄居 黎巴嫩 的 难民 现在 他 的 身份 是 肾源 叙利亚 难民 正面 对 第三个 冬天 瑞德 的 故事 变得 普遍 肾 却 廉价 他 依靠 卖出 的 肾 度过 这个 冬天 却 不 知道 下个 冬天 会 怎样
+ref: 叙利亚 前国足 队员 靠 卖 肾 过冬
+dec: 叙利亚 [UNK] 队员 靠 卖 肾 过冬
+
+article: A股 上市公司 一 季报 披露 完毕 投资 动向 隐秘 的 私募 大佬 们 的 不少 重仓股 也 随之 浮出 水面 比起 年报 相对 滞后 的 数据 一 季报 中 披露 出来 的 私募 重仓股 的 数据 显然 时效性 更强 投资者 也 更 能 从 数据 中一 窥 他们 对 当年 行情 的 大概 布局 思路
+ref: 私募 大佬 一季度 重仓股 含金量 分析
+dec: 私募 大佬 重仓股 曝光 王亚伟 重仓股 曝光
 ```
 
-#### 测试
-```
-2020-07-13 17:20:01,738 - data_util.log - INFO - 0200000.tar rouge_1:0.3396 rouge_2:0.1668 rouge_l:0.3320
-```
-
-#### 摘要效果示例
-article:文本；ref：参考摘要；dec：模型摘要
-```
-article: 用于 众筹 的 是 一套 100 平方米 市场价 约 为 90 万 的 三室 住房 只要 投资 1000 元 以上 就 可以 成为 投资者 筹到 54 万元 总额 截止 相当于 总价 的 6 折 成交 金额 超出 54 万 的 部分 将 作为 投资收益 分给 未能 拍 得 房屋 的 其他人
-ref: 万科 推出 首个 房产 众筹 预期 年化 收益率 不 低于 40%
-dec: 万科 推出 首个 房产 众筹 平台
-
-article: 扩大内需 的 难点 和 重点 在 消费 潜力 也 在 消费 扩大 居民消费 要 在 提高 消费 能力 稳定 消费 预期 增强 消费 意愿 改善 消费 环境 上 下功夫 对此 代表 委员 纷纷表示 应该 健全 医疗 养老 等 保障体系 让 消费者 愿意 消费 并且 敢于 消费 人民日报
-ref: 代表 委员 热议 扩 内需 让 百姓 有钱 花敢 花钱
-dec: 让 消费者 有钱 敢于 消费
-
-article: 百盛 青岛 啤酒 城 项目 金狮 广场 已现 雏形 外墙 醒目 的 大字 预示 着 这里 将来 的 商业 繁荣 百盛 14 亿 收购 青岛 购物中心 相关 消息 称 百盛 未来 新开 门店 将 以店 中店 和 购物中心 为主 不再 开设 单体 百货 外资 第一 百货 品牌 百盛 也 开始 走 自我 转型 的 道路
-ref: 青岛 百盛 14 亿 收购 青岛 购物中心
-dec: 青岛 啤酒 城 项目 更名 青岛 购物中心
-
-article: 正 快速 老龄化 的 中国 将 拥有 世界 上 最大 的 老龄 产业 市场 到 2050 年 中国 老年人 口 的 消费 潜力 将 增长 到 106 万亿元 左右 GDP 占 比 将 增长 到 33% 老龄 金融业 和 老龄 房地产业 将 是 增长 的 两大 亮点 今天上午 全国 老龄 工作 办 发布 了 最新 的 中国 老龄 产业 发展 报告
-ref: 老龄 产业 亟待 深耕 的 市场
-dec: 中国 老龄 产业 发展 报告
-
-article: 游戏 数据分析 中 我们 发现 某项 物品 最近 销售 数据 在 下滑 我们 可能 就 会 下结论 这个 物品 受欢迎 程度 在 下降 但 这个 结论 是 不 准确 的 必须 结合 着 其他 的 数据 一块 看 例如 DAU 如果 DAU 在 下降 那么 该 物品 的 销售 随之 下降 是 正常 的
-ref: 几个 很 有 启发性 的 关于 数据 会 说谎 的 真实 例子
-dec: 游戏 中 的 销售 数据 在 哪里
-
-article: 在 国外 餐饮 O2O 领域 的 投融资 事件 也 很多 一 Google 收购 软件 公司 Appetas 对抗 Yelp 留下 员工 关闭 网站 二 TripAdvisor 掀起 收购 浪潮 最近 一次 收购 餐饮 预订 网站 LaFourchette 三 Concur 投资 Lastminute 餐厅 预订 网站 Table8 @ 李小双 亿欧网
-ref: 国外 巨头 在 餐饮 O2O 领域 的 投融资 事件
-dec: 国外 餐饮 O2O 领域 的 投融资 事件
-
-article: 国务院 大部 制 机构 改革方案 10 日 公布 铁道部 并入 交通部 政企分开 建 铁路 总公司 被 媒体 称为 末任 铁道部 部长 的 盛 光祖 表示 铁道部 虽然 将 被 撤销 但 铁路职工 不 存在 安置 问题 也 不会 裁员 铁路 票价 一直 偏低 今后 要 按照 市场规律 按照 企业化 经营 的 模式 来定 票价
-ref: 别 了 64 岁 的 铁道部
-dec: 别 了 糊涂账
-
-article: 新浪 微博 已有 三岁 俗话说 三岁 看 老 但 从 发展 轨迹 来看 其 未来 并 不 乐观 活跃 用户 少 僵尸 粉 泛滥 内容 趋向 同质化 这些 问题 都 是 源于 新浪 微博 的 媒体 本质 不能 有效 地 加强 普通用户 之间 的 互动 不是 成功 就是 死去 未来 到底 会 怎样 呢
-ref: 处于 疯狂 边缘 的 野兽 新浪 微博 繁华 下 的 危机
-dec: 专栏 新浪 微博 的 未来
-
-article: 继 寒假 兼职 飞机票 购 退款 热门 综艺 类节目 中奖 等 电话 诈骗 后 喂 我 是 你 领导 骗局 最近 疯狂 来袭 骗子 在 温州 龙湾 转悠 害 得 不少 人 被 骗钱 市民 接到 此类 诈骗 电话 时要 谨慎 与 当事人 当面 核实 以免 上当受骗
-ref: 我 是 你 领导 骗局 很 疯狂
-dec: 我 是 你 领导 极具 诈骗 电话
-
-article: 记者 采访 获悉 阿里 集团 电商 资产 将 于 年内 上市 这 将 是 陆兆禧 出任 阿里 集团 CEO 所 面临 的 的 首要任务 届时 阿里巴巴 将 可能 成为 全球 第三 大 市值 公司 估值 为 腾讯 与 百度 市值 之 和 陆兆禧 2011 年 出任 阿里 B2BCEO 时 曾 成功 完成 香港 退市 的 任务
-ref: 陆兆禧 首务 阿里 电商 资产 年内 上市
-dec: 阿里 集团 电商 资产 年内 上市
-
-article: 河南 出入境 检验 检疫局 12 日 对外 通报 称 该局 从 来自 日本 的 邮包 中 截获 日本产 注射用 人体 胎盘 提取液 750 支 邮包 上 收件人 为 某 整形医院 人体 胎盘 提取液 属 生物制品 有 传播 艾滋病 乙肝 丙肝 等 传染病 的 可能 我国 明令禁止 邮寄 进境
-ref: 河南 截获 日本 违禁 人体 胎盘 提取液 有 染艾滋 风险
-dec: 河南 查获 首 起 人体 胎盘 提取液
-```
+从上文罗列出的两个文本来看，虽然说的是两个模型进行了整合，尤其是指针生成网络，按理说应该不会存在UNK的，但是从生成的数据来看，仍然存在OOV问题，和重复等问题，这么短的文本都能出现OOV和重复问题，确实令人寻味。

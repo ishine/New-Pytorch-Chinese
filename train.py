@@ -185,7 +185,7 @@ class Train(object):
             oovs = article_oovs[i]
             S = data.outputids2words(
                 id_list, self.vocab,
-                oovs)  #Generate sentence corresponding to sampled words
+                oovs)  # Generate sentence corresponding to sampled words
             try:
                 end_idx = S.index(data.STOP_DECODING)
                 S = S[:end_idx]
@@ -321,6 +321,7 @@ class Train(object):
 
 
 if __name__ == "__main__":
+    T.backends.cudnn.enabled = False
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_mle', type=str, default="yes")
     parser.add_argument('--train_rl', type=str, default="no")
